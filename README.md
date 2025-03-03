@@ -7,110 +7,117 @@ LRP assigns relevance scores to each input feature, revealing which parts of the
 - What patterns the network has learned to recognize
 - Potential biases or unexpected decision criteria in the model
 
-Beyond images, LRP can be applied to various data types including text, time series, and tabular data, making it a versatile tool for model interpretability across domains.
+Beyond images, LRP can be applied to various data types, including text, time series, and tabular data, making it a versatile tool for model interpretability across domains.
 
 ## Training the miniVGG Network
 
 For our experiment, we implemented a miniVGG network architecture, a simplified version of the original VGGNet but retaining key design principles like small convolutional filters and increasing depth.
 
 ### Model Architecture
+As we see, we used some dropouts to prevent overfitting and RelU activations; the simplified model architecture is the following:
+```Conv -> Conv -> MaxPool -> Conv -> Conv -> MaxPool -> FC -> FC```
 
 ```python
-def miniVGG(input_shape, num_classes):
-    model = Sequential()
-    
-    # First CONV => RELU => CONV => RELU => POOL block
-    model.add(Conv2D(32, (3, 3), padding="same", input_shape=input_shape))
-    model.add(Activation("relu"))
-    model.add(BatchNormalization())
-    model.add(Conv2D(32, (3, 3), padding="same"))
-    model.add(Activation("relu"))
-    model.add(BatchNormalization())
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))
-    
-    # Second CONV => RELU => CONV => RELU => POOL block
-    model.add(Conv2D(64, (3, 3), padding="same"))
-    model.add(Activation("relu"))
-    model.add(BatchNormalization())
-    model.add(Conv2D(64, (3, 3), padding="same"))
-    model.add(Activation("relu"))
-    model.add(BatchNormalization())
-    model.add(MaxPooling2D(pool_size=(2, 2)))
-    model.add(Dropout(0.25))
-    
-    # FC => RELU layers
-    model.add(Flatten())
-    model.add(Dense(512))
-    model.add(Activation("relu"))
-    model.add(BatchNormalization())
-    model.add(Dropout(0.5))
-    
-    # Softmax classifier
-    model.add(Dense(num_classes))
-    model.add(Activation("softmax"))
-    
-    return model
+class MiniVGG(nn.Module):
+    def __init__(self, num_classes=10):
+        super(MiniVGG, self).__init__()
+        self.features = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.35),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.35),
+            nn.Conv2d(128, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(8*8*128, 256),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.45),
+            nn.Linear(256, 64),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.5),
+            nn.Linear(64, num_classes)
+        )
+
+    def forward(self, x):
+        # Forward pass through features
+        x = self.features(x)
+        x = self.classifier(x)
+        return x
+
+model = MiniVGG(num_classes=10).cuda()
+
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=0.0004)
 ```
 
 ### Training Process
 
-We trained the network on the CIFAR-10 dataset, which contains 60,000 32x32 color images across 10 classes:
+We trained the network on the CIFAR-10 dataset, which contains 60,000 32x32 color images across 10 classes. We trained the model for 14 epochs.
 
 ```python
-# Load and preprocess data
-(X_train, y_train), (X_test, y_test) = cifar10.load_data()
-X_train = X_train.astype('float32') / 255.0
-X_test = X_test.astype('float32') / 255.0
-y_train = to_categorical(y_train, 10)
-y_test = to_categorical(y_test, 10)
+#Number of epochs
+epochs = 14
+train_loss_history = []
+val_loss_history = []
+val_acc_history = []
 
-# Compile model
-model = miniVGG((32, 32, 3), 10)
-opt = Adam(learning_rate=1e-3)
-model.compile(loss="categorical_crossentropy", optimizer=opt, metrics=["accuracy"])
+# Training loop
+for epoch in range(epochs):
+    model.train()
+    running_loss = 0.0
+    for images, labels in train_loader:
+        images, labels = images.cuda(), labels.cuda()
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
 
-# Train model
-history = model.fit(
-    X_train, y_train,
-    validation_data=(X_test, y_test),
-    batch_size=64,
-    epochs=40,
-    verbose=1
-)
+    # Validation step
+    model.eval()
+    val_loss = 0.0
+    correct = 0
+    total = 0
 ```
 
-Our model achieved approximately 85% accuracy on the test set after training.
+Our model achieved approximately 80% accuracy on the test set after training.
 
 ## Applying the LRP Algorithm
 
-To explain the model's decisions, we implemented LRP using the `innvestigate` library, which offers various interpretation methods for neural networks.
+To explain the model's decisions, we implemented LRP using the `zennit` library, which offers various interpretation methods for neural networks.
 
 ### Setting up the LRP Analyzer
 
 ```python
-import innvestigate
-import innvestigate.utils as iutils
+from zennit.composites import EpsilonPlusFlat
+from zennit.attribution import Gradient
 
-# Create analyzer for LRP
-analyzer = innvestigate.analyzer.relevance_based.LRP(model)
+composite = EpsilonPlusFlat(epsilon=1e-6)
 
-# Analyze a sample image
-image = X_test[image_index]
-analysis = analyzer.analyze(image[np.newaxis, ...])
+# Create an Attribution object
+attr = Gradient(model, composite)
 
-# Post-process the result for visualization
-analysis = analysis.sum(axis=np.argmax(np.asarray(analysis.shape) == 3))
-analysis = iutils.postprocess.clip_quantile(analysis, 1.0)
-analysis = iutils.postprocess.heatmap(analysis)
+example_loader = DataLoader(test_set, batch_size=5, shuffle=True)
+images, labels = next(iter(example_loader))
+images, labels = images.cuda(), labels.cuda()
 ```
-
-We specifically used the LRP-ε variant, which stabilizes the propagation by adding a small ε term in the denominator, preventing divisions by zero while maintaining the conservation principle.
+We specifically used the LRP-ε variant (EpsilonPlusFlat), which stabilizes the propagation by adding a small ε term in the denominator, preventing divisions by zero while maintaining the conservation principle.
 
 ### Libraries Used
 
-- **TensorFlow/Keras**: For building and training the neural network
-- **innvestigate**: For implementing LRP and other interpretability methods
+- **Pytorch**: For building and training the neural network
+- *Zennit*: For implementing LRP interpretability method
 - **NumPy**: For array operations
 - **Matplotlib**: For visualization of results
 
@@ -121,10 +128,7 @@ The LRP analysis produced heatmaps highlighting the regions of input images that
 1. **Focused Attention**: The network correctly focused on distinctive features of objects (e.g., wings for birds, windows for cars)
 2. **Background Discrimination**: The model learned to largely ignore background elements when making classifications
 3. **Feature Hierarchy**: Different layers showed attention to different aspects - early layers focused on edges, while deeper layers captured more semantic features
-
-![Sample LRP Visualization](images/lrp_visualization.png)
-
-The heatmaps use a color spectrum where red indicates positive relevance (features supporting the classification) and blue indicates negative relevance (features contradicting the classification).
+4. The heatmaps use a color spectrum where red indicates positive relevance (features supporting the classification) and blue indicates negative relevance (features contradicting the classification).
 
 ## Conclusion
 
