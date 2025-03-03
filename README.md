@@ -117,7 +117,7 @@ We specifically used the LRP-ε variant (EpsilonPlusFlat), which stabilizes the 
 ### Libraries Used
 
 - **Pytorch**: For building and training the neural network
-- *Zennit*: For implementing LRP interpretability method
+- *Zennit*: For implementing the LRP interpretability method
 - **NumPy**: For array operations
 - **Matplotlib**: For visualization of results
 
@@ -130,9 +130,30 @@ The LRP analysis produced heatmaps highlighting the regions of input images that
 3. **Feature Hierarchy**: Different layers showed attention to different aspects - early layers focused on edges, while deeper layers captured more semantic features
 4. The heatmaps use a color spectrum where red indicates positive relevance (features supporting the classification) and blue indicates negative relevance (features contradicting the classification).
 
+Next, we have some examples of the results:
+
+For the first example, we'll look at the test image of the plane. The model correctly identifies it as a plane. The corresponding heatmap shows concentrated red areas highlighting significant features such as the wing shape and fuselage contours, indicating that the model successfully leverages these key characteristics for its decision-making process.
+
+![Example 1](Examples/output3.png)
+
+In the second example, the image shows a car. The model correctly predicts the class and focuses on relevant features, such as the wheels and overall shape. The heatmap confirms that the model disregards the less important background, reinforcing its ability to isolate the critical components needed for accurate classification.
+
+![Example 2](Examples/output2.png)
+
+The third example presents a more challenging scenario. The input image is of a truck viewed from behind, yet the model misclassifies it as a car. By applying LRP, we can see that the heatmap highlights features common to cars, such as the shape and structure that the model has learned to associate with that class. This example illustrates the model's confusion and underscores the need for further refinement, especially in handling edge cases and ambiguous perspectives.
+
+![Example 3](Examples/output4.png)
+
+Here, the input image is a cat, but the model predicts it as a deer. At first, this might seem confusing, but applying LRP helps us understand why the model got it wrong. We see that the model focuses on certain textures in the image. Specifically, the two areas at the bottom, which seem to correspond to parts of the cat's fur, could resemble deer horns in shape or pattern. The model likely learned to associate similar textures with deer during training. Interestingly, the model does not focus on key cat features like the face shape, ears, or whiskers—things that a human would easily use to identify a cat. Instead, it gives importance to the wrong textures, leading to this misclassification.
+
+This example highlights the value of LRP. By visualizing where the model is looking, we can identify its mistakes and figure out how to fix them.
+
+![Example 4](Examples/output1.png)
+
+
 ## Conclusion
 
-Layer-wise Relevance Propagation proved to be an effective tool for understanding our miniVGG model's decision-making process. The visualizations confirmed that the model was focusing on appropriate features for classification and not relying on spurious correlations or background elements.
+Layer-wise Relevance Propagation proved to be an effective tool for understanding our miniVGG model's decision-making process. Although the model sometimes misclassifies images, the LRP visualizations provide clear insights into the underlying reasons for these errors.
 
 LRP helps bridge the gap between the high performance of deep neural networks and their interpretability, making them more trustworthy for critical applications. This method can be particularly valuable in domains like medical imaging or autonomous driving, where understanding why a model made a specific decision is as important as the decision itself.
 
